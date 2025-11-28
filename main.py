@@ -392,7 +392,46 @@ def run_bot():
             logger.exception(f"메인 루프 예외: {e}")
             time.sleep(get_candle_sleep_time())
 
+# --- 봇 스레드 관리 (강건한 자동 재시작) -------------------------------------------------------
+def bot_thread_wrapper():
+    """봇 스레드 크래시 시 자동 재시작 로직"""
+    retry_count = 0
+    max_retries = 5
+    retry_delay = 5  # 초
+    
+    while retry_count < max_retries:
+        try:
+            logger.info(f"[스레드 관리] 봇 시작 (재시작: {retry_count}/{max_retries})")
+            run_bot()
+        except KeyboardInterrupt:
+            logger.info("[스레드 관리] 사용자 중단 신호")
+            break
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"[스레드 관리] 봇 크래시: {e}")
+            
+            if retry_count < max_retries:
+                logger.warning(f"[스레드 관리] {retry_delay}초 후 재시작... ({retry_count}/{max_retries})")
+                time.sleep(retry_delay)
+            else:
+                logger.critical(f"[스레드 관리] 최대 재시작 횟수 도달 - 봇 종료")
+                break
+    
+    logger.critical("[스레드 관리] 봇 스레드 종료")
+
 # --- 실행부 -------------------------------------------------------------------------------
 if __name__ == "__main__":
-    Thread(target=run_bot, daemon=True).start()
-    run_server()
+    # 봇 스레드: 강건한 자동 재시작 (daemon=False로 정상 종료 대기)
+    bot_thread = Thread(target=bot_thread_wrapper, daemon=False)
+    bot_thread.start()
+    logger.info("[메인] 봇 스레드 시작")
+    
+    # Flask 서버: 메인 스레드에서 실행
+    try:
+        logger.info("[메인] Flask 서버 시작")
+        run_server()
+    except Exception as e:
+        logger.error(f"[메인] Flask 서버 오류: {e}")
+    finally:
+        logger.info("[메인] 프로그램 종료")
+        # 봇 스레드가 daemon=False이므로 자동으로 대기함
