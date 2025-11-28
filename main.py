@@ -245,15 +245,15 @@ def run_bot():
                 else:
                     usdt_to_use = balance * Decimal(str(POSITION_RATIO))
                     if usdt_to_use <= 0:
-                        logger.info("사용 가능한 잔고 없음")
+                        logger.warning(f"잔고 부족: 사용 가능 USDT={balance:.4f}, 필요 금액={balance * Decimal(str(POSITION_RATIO)):.4f}")
                     else:
                         # 수량 계산 및 거래소 스텝/최소수량 반영
                         raw_qty = usdt_to_use / current_price
                         qty_decimal = quantize_qty(raw_qty, step_size)
-                        logger.debug(f"raw_qty={raw_qty}, quantized={qty_decimal}, min_qty={min_qty}")
+                        logger.info(f"[수량 계산] 사용 USDT={usdt_to_use:.4f}, 현재가={current_price:.2f}, 계산 수량={raw_qty:.8f}, 조정 수량={qty_decimal:.8f}, 최소수량={min_qty:.8f}")
 
                         if qty_decimal < min_qty:
-                            logger.info(f"계산된 수량 {qty_decimal}이 최소수량 {min_qty} 미만, 진입하지 않습니다.")
+                            logger.warning(f"[진입 불가] 계산된 수량 {qty_decimal:.8f} < 최소수량 {min_qty:.8f} → 진입 스킵")
                         else:
                             # 진입 조건: 2개 캔들 연속 확인으로 노이즈 필터링
                             long_condition = (
@@ -309,7 +309,12 @@ def run_bot():
                                 except Exception as e:
                                     logger.error(f"SHORT 진입 실패: {e}")
                             else:
-                                logger.debug("진입 조건 미충족")
+                                logger.info(
+                                    f"[진입 조건 미충족] "
+                                    f"EMA20={last_candle['ema20']:.2f}, EMA60={last_candle['ema60']:.2f}, "
+                                    f"가격={last_close:.2f}, RSI={last_candle['rsi']:.2f} | "
+                                    f"이전 캔들: EMA20={prev_candle['ema20']:.2f}, EMA60={prev_candle['ema60']:.2f}"
+                                )
 
             # 루프 슬립: 다음 캔들 마감 시까지 동기화
             sleep_time = get_candle_sleep_time()
