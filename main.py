@@ -38,6 +38,7 @@ TIMEFRAME = os.environ.get("TIMEFRAME", "15m")
 POSITION_RATIO = float(os.environ.get("POSITION_RATIO", 0.10))
 TRAIL_RATE = float(os.environ.get("TRAIL_RATE", 1.5))
 HARD_SL = float(os.environ.get("HARD_SL", -5.0))
+TESTNET_BASE_URL = os.environ.get("TESTNET_BASE_URL", "https://testnet.binance.com/fapi")  # 안정적인 테스트넷
 CANDLE_INTERVAL = 900  # 15분 = 900초
 
 # 소수점 연산 정밀도
@@ -59,7 +60,8 @@ def get_client():
     if not API_KEY or not API_SECRET:
         logger.error("API_KEY/API_SECRET 미설정. 환경변수를 확인하세요.")
         return None
-    client = UMFutures(key=API_KEY, secret=API_SECRET, base_url="https://testnet.binancefuture.com")
+    logger.info(f"테스트넷 연결: {TESTNET_BASE_URL}")
+    client = UMFutures(key=API_KEY, secret=API_SECRET, base_url=TESTNET_BASE_URL)
     return client
 
 def get_exchange_filters(client, symbol):
