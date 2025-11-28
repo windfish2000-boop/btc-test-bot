@@ -38,10 +38,18 @@ TIMEFRAME = os.environ.get("TIMEFRAME", "15m")
 POSITION_RATIO = float(os.environ.get("POSITION_RATIO", 0.10))
 TRAIL_RATE = float(os.environ.get("TRAIL_RATE", 1.5))
 HARD_SL = float(os.environ.get("HARD_SL", -5.0))
-MIN_LOOP_SLEEP = 30  # 기본 루프 딜레이(초)
+CANDLE_INTERVAL = 900  # 15분 = 900초
 
 # 소수점 연산 정밀도
 getcontext().prec = 18
+
+# 15분 캔들 동기화 함수
+def get_candle_sleep_time():
+    """다음 캔들 마감까지의 대기 시간 계산 (초 단위)"""
+    now = time.time()
+    candle_progress = now % CANDLE_INTERVAL
+    sleep_time = CANDLE_INTERVAL - candle_progress
+    return sleep_time
 
 # --- 유틸 / 거래소 정보 ------------------------------------------------------------------
 def safe_decimal(x):
@@ -183,7 +191,7 @@ def run_bot():
             df = get_ohlcv()
             if df.empty or len(df) < 2:
                 logger.info("데이터 부족, 대기")
-                time.sleep(MIN_LOOP_SLEEP)
+                time.sleep(get_candle_sleep_time())
                 continue
 
             df = calculate_indicators(df)
@@ -200,7 +208,7 @@ def run_bot():
             # entry_price=0 보호 로직 (ZeroDivision 방지)
             if side and entry_price == 0:
                 logger.warning("entry_price=0 → PnL 계산 불가. 포지션 조회 오류로 스킵")
-                time.sleep(MIN_LOOP_SLEEP)
+                time.sleep(get_candle_sleep_time())
                 continue
 
             # 상태 로깅
@@ -227,7 +235,7 @@ def run_bot():
                         client.cancel_open_orders(symbol=SYMBOL)
                     except Exception as e:
                         logger.debug(f"미체결 주문 취소 실패: {e}")
-                    time.sleep(MIN_LOOP_SLEEP)
+                    time.sleep(get_candle_sleep_time())
                     continue
 
             # 포지션 없음 -> 진입 판단
@@ -303,12 +311,14 @@ def run_bot():
                             else:
                                 logger.debug("진입 조건 미충족")
 
-            # 루프 슬립: rate limit 고려 및 캔들 타이밍에 맞춰 조정 가능
-            time.sleep(MIN_LOOP_SLEEP)
+            # 루프 슬립: 다음 캔들 마감 시까지 동기화
+            sleep_time = get_candle_sleep_time()
+            logger.debug(f"다음 캔들 마감까지 {sleep_time:.1f}초 대기")
+            time.sleep(sleep_time)
 
         except Exception as e:
             logger.exception(f"메인 루프 예외: {e}")
-            time.sleep(MIN_LOOP_SLEEP)
+            time.sleep(get_candle_sleep_time())
 
 # --- 실행부 -------------------------------------------------------------------------------
 if __name__ == "__main__":
