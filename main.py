@@ -197,6 +197,12 @@ def run_bot():
             side, qty, entry_price = get_position()
             open_orders_exist = has_open_orders()
 
+            # entry_price=0 보호 로직 (ZeroDivision 방지)
+            if side and entry_price == 0:
+                logger.warning("entry_price=0 → PnL 계산 불가. 포지션 조회 오류로 스킵")
+                time.sleep(MIN_LOOP_SLEEP)
+                continue
+
             # 상태 로깅
             state_msg = f"가격: {current_price:.2f}, 기준: {last_close:.2f}, 잔고: {balance:.4f} USDT, 포지션: {side or '없음'}"
             if side:
