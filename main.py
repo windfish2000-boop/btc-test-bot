@@ -84,21 +84,18 @@ def get_exchange_filters(client, symbol):
                         defaults["minQty"] = minq
                     if f.get("filterType") == "PRICE_FILTER":
                         tick = f.get("tickSize", "0.01")
-                        defaults["pricePrecision"] = abs(Decimal(str(tick)).as_tuple().exponent)
+                        defaults["pricePrecision"] = int(abs(Decimal(str(tick)).as_tuple().exponent))
                 return defaults
     except Exception as e:
         logger.warning(f"심볼 정보 조회 실패: {e}")
     return defaults
 
 def quantize_qty(qty: Decimal, step: Decimal):
-    """거래소 stepSize에 맞춰 내림 반올림"""
+    """거래소 stepSize에 맞춰 내림 반올림 (정확도 보장)"""
     if qty <= 0:
         return Decimal("0")
-    # 예: step 0.001 -> quant = '0.001'
-    s = Decimal(str(step))
-    exp = -s.as_tuple().exponent
-    quant = Decimal(1).scaleb(-exp)
-    return (qty // s) * s  # 내림
+    # 거래소 규칙에 정확히 부합: (수량 / 스텝).내림 * 스텝
+    return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
 
 # --- 인디케이터 계산 ---------------------------------------------------------------------
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -110,8 +107,9 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     delta = df["close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
-    # loss가 0일때 1e-10로 대체
-    df["rsi"] = 100 - 100 / (1 + gain / loss.replace(0, 1e-10))
+    # loss가 0일때 1e-10로 대체 (ZeroDivision 방지)
+    loss = loss.fillna(0).replace(0, 1e-10)
+    df["rsi"] = 100 - 100 / (1 + gain / loss)
     return df
 
 # --- 주요 로직 ---------------------------------------------------------------------------
@@ -153,7 +151,7 @@ def run_bot():
     def get_ohlcv():
         try:
             klines = client.klines(symbol=SYMBOL, interval=TIMEFRAME, limit=200)
-            df = pd.DataFrame(klines, columns=[
+            df = pd.DataFrame(klines, columns=[  # type: ignore
                 "timestamp", "open", "high", "low", "close", "volume",
                 "close_time", "quote_volume", "trades", "taker_buy_base",
                 "taker_buy_quote", "ignore"
