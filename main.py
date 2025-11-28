@@ -171,13 +171,30 @@ def run_bot():
     def get_ohlcv():
         try:
             klines = client.klines(symbol=SYMBOL, interval=TIMEFRAME, limit=200)
-            df = pd.DataFrame(klines, columns=[  # type: ignore
+            if not klines or len(klines) == 0:
+                logger.warning("klines 데이터 없음")
+                return pd.DataFrame()
+            
+            # klines를 리스트로 변환 (API 응답 안정화)
+            data = []
+            for kline in klines:
+                if isinstance(kline, (list, tuple)) and len(kline) >= 12:
+                    data.append([
+                        kline[0], kline[1], kline[2], kline[3], kline[4], kline[7],
+                        kline[6], kline[7], kline[8], kline[9], kline[10], 0
+                    ])
+            
+            if not data:
+                logger.warning("변환된 klines 데이터 없음")
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(data, columns=[
                 "timestamp", "open", "high", "low", "close", "volume",
                 "close_time", "quote_volume", "trades", "taker_buy_base",
                 "taker_buy_quote", "ignore"
             ])
             for c in ["open", "high", "low", "close", "volume"]:
-                df[c] = df[c].astype(float)
+                df[c] = pd.to_numeric(df[c], errors='coerce')
             return df
         except Exception as e:
             logger.error(f"OHLCV 조회 오류: {e}")
