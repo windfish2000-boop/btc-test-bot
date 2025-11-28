@@ -119,12 +119,23 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
     df["ema60"] = df["close"].ewm(span=60, adjust=False).mean()
+    
+    # Wilder's RSI (RMA 기반 - Binance/TradingView와 동일)
     delta = df["close"].diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    # loss가 0일때 1e-10로 대체 (ZeroDivision 방지)
-    loss = loss.fillna(0).replace(0, 1e-10)  # type: ignore
-    df["rsi"] = 100 - 100 / (1 + gain / loss)
+    gains = delta.clip(lower=0)
+    losses = -delta.clip(upper=0)
+    
+    # 첫 14 기간: SMA
+    avg_gain = gains.rolling(14).mean()
+    avg_loss = losses.rolling(14).mean()
+    
+    # 이후: Wilder's EMA (alpha=1/14, 지수 평활)
+    for i in range(14, len(df)):
+        avg_gain.iloc[i] = (avg_gain.iloc[i-1] * 13 + gains.iloc[i]) / 14
+        avg_loss.iloc[i] = (avg_loss.iloc[i-1] * 13 + losses.iloc[i]) / 14
+    
+    avg_loss = avg_loss.fillna(0).replace(0, 1e-10)  # type: ignore
+    df["rsi"] = 100 - 100 / (1 + avg_gain / avg_loss)
     # NaN 방어: 초기 몇 개의 NaN 값을 처리 (Forward fill)
     df["ema20"] = df["ema20"].fillna(method="bfill")  # type: ignore
     df["ema60"] = df["ema60"].fillna(method="bfill")  # type: ignore
