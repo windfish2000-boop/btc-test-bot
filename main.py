@@ -301,114 +301,114 @@ def run_bot():
                                 # 시장가 진입
                                 new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
                                 logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
-                                    
-                                    # 1) 트레일링 스탑 (주요 손절)
-                                    try:
-                                        trail = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="SELL",
-                                            type="TRAILING_STOP_MARKET",
-                                            quantity=float(qty_decimal),
-                                            callbackRate=float(TRAIL_RATE),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[LONG] 트레일링 스탑 생성: {trail}")
-                                    except Exception as e:
-                                        logger.warning(f"[LONG] 트레일링 스탑 생성 실패: {e}")
-                                    
-                                    # 2) 백업 익절 (TP: +5%)
-                                    tp_price = current_price * (1 + Decimal(str(BACKUP_TP / 100)))
-                                    tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
-                                    try:
-                                        take_profit = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="SELL",
-                                            type="TAKE_PROFIT_MARKET",
-                                            quantity=float(qty_decimal),
-                                            stopPrice=float(tp_price),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}): {take_profit}")
-                                    except Exception as e:
-                                        logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
-                                    
-                                    # 3) 백업 손절 (SL: -5%)
-                                    sl_price = current_price * (1 + Decimal(str(BACKUP_SL / 100)))
-                                    sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
-                                    try:
-                                        stop_loss = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="SELL",
-                                            type="STOP_MARKET",
-                                            quantity=float(qty_decimal),
-                                            stopPrice=float(sl_price),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[LONG] 백업 손절 생성 (SL={sl_price:.2f}): {stop_loss}")
-                                    except Exception as e:
-                                        logger.warning(f"[LONG] 백업 손절 생성 실패: {e}")
-                                except Exception as e:
-                                    logger.error(f"LONG 진입 실패: {e}")
-
-                            elif short_condition:
+                                
+                                # 1) 트레일링 스탑 (주요 손절)
                                 try:
-                                    new_ord = client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=float(qty_decimal))
-                                    logger.info(f"SHORT 진입 주문 (2캔들 연속 확인): {new_ord}")
-                                    
-                                    # 1) 트레일링 스탑 (주요 손절)
-                                    try:
-                                        trail = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="BUY",
-                                            type="TRAILING_STOP_MARKET",
-                                            quantity=float(qty_decimal),
-                                            callbackRate=float(TRAIL_RATE),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[SHORT] 트레일링 스탑 생성: {trail}")
-                                    except Exception as e:
-                                        logger.warning(f"[SHORT] 트레일링 스탑 생성 실패: {e}")
-                                    
-                                    # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때)
-                                    tp_price = current_price * (1 + Decimal(str(-BACKUP_TP / 100)))
-                                    tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
-                                    try:
-                                        take_profit = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="BUY",
-                                            type="TAKE_PROFIT_MARKET",
-                                            quantity=float(qty_decimal),
-                                            stopPrice=float(tp_price),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}): {take_profit}")
-                                    except Exception as e:
-                                        logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
-                                    
-                                    # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때)
-                                    sl_price = current_price * (1 + Decimal(str(-BACKUP_SL / 100)))
-                                    sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
-                                    try:
-                                        stop_loss = client.new_order(
-                                            symbol=SYMBOL,
-                                            side="BUY",
-                                            type="STOP_MARKET",
-                                            quantity=float(qty_decimal),
-                                            stopPrice=float(sl_price),
-                                            reduceOnly=True
-                                        )
-                                        logger.info(f"[SHORT] 백업 손절 생성 (SL={sl_price:.2f}): {stop_loss}")
-                                    except Exception as e:
-                                        logger.warning(f"[SHORT] 백업 손절 생성 실패: {e}")
+                                    trail = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="SELL",
+                                        type="TRAILING_STOP_MARKET",
+                                        quantity=float(qty_decimal),
+                                        callbackRate=float(TRAIL_RATE),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[LONG] 트레일링 스탑 생성: {trail}")
                                 except Exception as e:
-                                    logger.error(f"SHORT 진입 실패: {e}")
-                            else:
-                                logger.info(
-                                    f"[진입 조건 미충족] "
-                                    f"EMA20={last_candle['ema20']:.2f}, EMA60={last_candle['ema60']:.2f}, "
-                                    f"가격={last_close:.2f}, RSI={last_candle['rsi']:.2f} | "
-                                    f"이전 캔들: EMA20={prev_candle['ema20']:.2f}, EMA60={prev_candle['ema60']:.2f}"
-                                )
+                                    logger.warning(f"[LONG] 트레일링 스탑 생성 실패: {e}")
+                                
+                                # 2) 백업 익절 (TP: +5%)
+                                tp_price = current_price * (1 + Decimal(str(BACKUP_TP / 100)))
+                                tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
+                                try:
+                                    take_profit = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="SELL",
+                                        type="TAKE_PROFIT_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(tp_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}): {take_profit}")
+                                except Exception as e:
+                                    logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
+                                
+                                # 3) 백업 손절 (SL: -5%)
+                                sl_price = current_price * (1 + Decimal(str(BACKUP_SL / 100)))
+                                sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
+                                try:
+                                    stop_loss = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="SELL",
+                                        type="STOP_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(sl_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[LONG] 백업 손절 생성 (SL={sl_price:.2f}): {stop_loss}")
+                                except Exception as e:
+                                    logger.warning(f"[LONG] 백업 손절 생성 실패: {e}")
+                            except Exception as e:
+                                logger.error(f"LONG 진입 실패: {e}")
+
+                        elif short_condition:
+                            try:
+                                new_ord = client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=float(qty_decimal))
+                                logger.info(f"SHORT 진입 주문 (2캔들 연속 확인): {new_ord}")
+                                
+                                # 1) 트레일링 스탑 (주요 손절)
+                                try:
+                                    trail = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="BUY",
+                                        type="TRAILING_STOP_MARKET",
+                                        quantity=float(qty_decimal),
+                                        callbackRate=float(TRAIL_RATE),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[SHORT] 트레일링 스탑 생성: {trail}")
+                                except Exception as e:
+                                    logger.warning(f"[SHORT] 트레일링 스탑 생성 실패: {e}")
+                                
+                                # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때)
+                                tp_price = current_price * (1 + Decimal(str(-BACKUP_TP / 100)))
+                                tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
+                                try:
+                                    take_profit = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="BUY",
+                                        type="TAKE_PROFIT_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(tp_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}): {take_profit}")
+                                except Exception as e:
+                                    logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
+                                
+                                # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때)
+                                sl_price = current_price * (1 + Decimal(str(-BACKUP_SL / 100)))
+                                sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
+                                try:
+                                    stop_loss = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="BUY",
+                                        type="STOP_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(sl_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[SHORT] 백업 손절 생성 (SL={sl_price:.2f}): {stop_loss}")
+                                except Exception as e:
+                                    logger.warning(f"[SHORT] 백업 손절 생성 실패: {e}")
+                            except Exception as e:
+                                logger.error(f"SHORT 진입 실패: {e}")
+                        else:
+                            logger.info(
+                                f"[진입 조건 미충족] "
+                                f"EMA20={last_candle['ema20']:.2f}, EMA60={last_candle['ema60']:.2f}, "
+                                f"가격={last_close:.2f}, RSI={last_candle['rsi']:.2f} | "
+                                f"이전 캔들: EMA20={prev_candle['ema20']:.2f}, EMA60={prev_candle['ema60']:.2f}"
+                            )
 
             # 루프 슬립: 다음 캔들 마감 시까지 동기화
             sleep_time = get_candle_sleep_time()
