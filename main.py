@@ -91,7 +91,8 @@ def get_exchange_filters(client, symbol):
                         tick = f.get("tickSize", "0.01")
                         tick_dec = Decimal(str(tick))
                         defaults["tickSize"] = tick_dec
-                        defaults["pricePrecision"] = int(abs(tick_dec.as_tuple().exponent))
+                        exponent = tick_dec.as_tuple().exponent
+                        defaults["pricePrecision"] = int(abs(int(exponent)))
                 return defaults
     except Exception as e:
         logger.warning(f"심볼 정보 조회 실패: {e}")
@@ -122,7 +123,7 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     # loss가 0일때 1e-10로 대체 (ZeroDivision 방지)
-    loss = loss.fillna(0).replace(0, 1e-10)
+    loss = loss.fillna(0).replace(0, 1e-10)  # type: ignore
     df["rsi"] = 100 - 100 / (1 + gain / loss)
     return df
 
@@ -257,40 +258,49 @@ def run_bot():
 
             # 포지션 없음 -> 진입 판단
             if side is None:
+                # 고아 주문 정리: 포지션이 없으면서 미체결 주문이 있으면 자동 취소
                 if open_orders_exist:
-                    logger.info("미체결 주문 존재로 진입 건너뜀")
+                    logger.warning("포지션 없음 + 미체결 주문 존재 (고아 주문) → 자동 취소")
+                    try:
+                        client.cancel_open_orders(symbol=SYMBOL)
+                        logger.info("미체결 주문 모두 취소 완료")
+                    except Exception as e:
+                        logger.warning(f"미체결 주문 취소 실패: {e}")
+                    time.sleep(get_candle_sleep_time())
+                    continue
+                
+                # 미체결 주문이 없을 때만 진입 시도
+                usdt_to_use = balance * Decimal(str(POSITION_RATIO))
+                if usdt_to_use <= 0:
+                    logger.warning(f"잔고 부족: 사용 가능 USDT={balance:.4f}, 필요 금액={balance * Decimal(str(POSITION_RATIO)):.4f}")
                 else:
-                    usdt_to_use = balance * Decimal(str(POSITION_RATIO))
-                    if usdt_to_use <= 0:
-                        logger.warning(f"잔고 부족: 사용 가능 USDT={balance:.4f}, 필요 금액={balance * Decimal(str(POSITION_RATIO)):.4f}")
+                    # 수량 계산 및 거래소 스텝/최소수량 반영
+                    raw_qty = usdt_to_use / current_price
+                    qty_decimal = quantize_qty(raw_qty, step_size)
+                    logger.info(f"[수량 계산] 사용 USDT={usdt_to_use:.4f}, 현재가={current_price:.2f}, 계산 수량={raw_qty:.8f}, 조정 수량={qty_decimal:.8f}, 최소수량={min_qty:.8f}")
+
+                    if qty_decimal < min_qty:
+                        logger.warning(f"[진입 불가] 계산된 수량 {qty_decimal:.8f} < 최소수량 {min_qty:.8f} → 진입 스킵")
                     else:
-                        # 수량 계산 및 거래소 스텝/최소수량 반영
-                        raw_qty = usdt_to_use / current_price
-                        qty_decimal = quantize_qty(raw_qty, step_size)
-                        logger.info(f"[수량 계산] 사용 USDT={usdt_to_use:.4f}, 현재가={current_price:.2f}, 계산 수량={raw_qty:.8f}, 조정 수량={qty_decimal:.8f}, 최소수량={min_qty:.8f}")
+                        # 진입 조건: 2개 캔들 연속 확인으로 노이즈 필터링
+                        long_condition = (
+                            last_candle["ema20"] > last_candle["ema60"] and
+                            prev_candle["ema20"] > prev_candle["ema60"] and
+                            last_close > last_candle["ema20"] and
+                            last_candle["rsi"] < 68
+                        )
+                        short_condition = (
+                            last_candle["ema20"] < last_candle["ema60"] and
+                            prev_candle["ema20"] < prev_candle["ema60"] and
+                            last_close < last_candle["ema20"] and
+                            last_candle["rsi"] > 32
+                        )
 
-                        if qty_decimal < min_qty:
-                            logger.warning(f"[진입 불가] 계산된 수량 {qty_decimal:.8f} < 최소수량 {min_qty:.8f} → 진입 스킵")
-                        else:
-                            # 진입 조건: 2개 캔들 연속 확인으로 노이즈 필터링
-                            long_condition = (
-                                last_candle["ema20"] > last_candle["ema60"] and
-                                prev_candle["ema20"] > prev_candle["ema60"] and
-                                last_close > last_candle["ema20"] and
-                                last_candle["rsi"] < 68
-                            )
-                            short_condition = (
-                                last_candle["ema20"] < last_candle["ema60"] and
-                                prev_candle["ema20"] < prev_candle["ema60"] and
-                                last_close < last_candle["ema20"] and
-                                last_candle["rsi"] > 32
-                            )
-
-                            if long_condition:
-                                try:
-                                    # 시장가 진입
-                                    new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
-                                    logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
+                        if long_condition:
+                            try:
+                                # 시장가 진입
+                                new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
+                                logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
                                     
                                     # 1) 트레일링 스탑 (주요 손절)
                                     try:
