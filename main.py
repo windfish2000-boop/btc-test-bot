@@ -404,28 +404,22 @@ def run_bot():
 
 # --- 봇 스레드 관리 (강건한 자동 재시작) -------------------------------------------------------
 def bot_thread_wrapper():
-    """봇 스레드 크래시 시 자동 재시작 로직"""
-    retry_count = 0
-    max_retries = 5
+    """봇 스레드 크래시 시 무한 자동 재시작 로직"""
     retry_delay = 5  # 초
+    restart_count = 0
     
-    while retry_count < max_retries:
+    while True:
         try:
-            logger.info(f"[스레드 관리] 봇 시작 (재시작: {retry_count}/{max_retries})")
+            restart_count += 1
+            logger.info(f"[스레드 관리] 봇 시작 (재시작 횟수: {restart_count})")
             run_bot()
         except KeyboardInterrupt:
             logger.info("[스레드 관리] 사용자 중단 신호")
             break
         except Exception as e:
-            retry_count += 1
             logger.error(f"[스레드 관리] 봇 크래시: {e}")
-            
-            if retry_count < max_retries:
-                logger.warning(f"[스레드 관리] {retry_delay}초 후 재시작... ({retry_count}/{max_retries})")
-                time.sleep(retry_delay)
-            else:
-                logger.critical(f"[스레드 관리] 최대 재시작 횟수 도달 - 봇 종료")
-                break
+            logger.warning(f"[스레드 관리] {retry_delay}초 후 재시작...")
+            time.sleep(retry_delay)
     
     logger.critical("[스레드 관리] 봇 스레드 종료")
 
