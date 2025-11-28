@@ -203,6 +203,10 @@ def run_bot():
             logger.error(f"미체결 주문 조회 오류: {e} - 안전 모드로 새 진입 허용")
             return False  # API 오류 시에도 진입 시도
 
+    # 포지션 상태 추적 (포지션 종료 감지용)
+    previous_side = None
+    previous_qty = Decimal("0")
+
     # 메인 루프
     while True:
         try:
@@ -222,6 +226,28 @@ def run_bot():
             balance = Decimal(str(get_balance()))
             side, qty, entry_price = get_position()
             open_orders_exist = has_open_orders()
+
+            # 포지션 종료 감지: 이전 상태와 비교하여 포지션이 사라지면 모든 미체결 주문 취소
+            if previous_side is not None and side is None:
+                # LONG/SHORT → 없음 (포지션 완전 종료)
+                logger.warning("[포지션 종료 감지] 모든 미체결 주문 취소 시작")
+                try:
+                    client.cancel_open_orders(symbol=SYMBOL)
+                    logger.info("[포지션 종료 감지] 미체결 주문 모두 취소 완료 (TS/TP/SL 정리)")
+                except Exception as e:
+                    logger.warning(f"[포지션 종료 감지] 미체결 주문 취소 실패: {e}")
+            elif previous_side is not None and previous_side != side and side is not None:
+                # LONG → SHORT 또는 SHORT → LONG (포지션 전환)
+                logger.warning(f"[포지션 전환 감지] {previous_side} → {side}: 미체결 주문 취소 시작")
+                try:
+                    client.cancel_open_orders(symbol=SYMBOL)
+                    logger.info(f"[포지션 전환 감지] 미체결 주문 모두 취소 완료")
+                except Exception as e:
+                    logger.warning(f"[포지션 전환 감지] 미체결 주문 취소 실패: {e}")
+
+            # 상태 업데이트
+            previous_side = side
+            previous_qty = qty
 
             # entry_price=0 보호 로직 (ZeroDivision 방지)
             if side and entry_price == 0:
