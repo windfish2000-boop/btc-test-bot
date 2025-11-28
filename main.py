@@ -187,8 +187,9 @@ def run_bot():
                 continue
 
             df = calculate_indicators(df)
-            # 마지막 완성 캔들 기준으로 판단 -> df.iloc[-2]
+            # 마지막 완성 캔들 기준으로 판단 (2개 캔들 연속 확인)
             last_candle = df.iloc[-2]
+            prev_candle = df.iloc[-3]
             current_price = Decimal(str(df.iloc[-1]["close"]))
             last_close = Decimal(str(last_candle["close"]))
 
@@ -240,12 +241,25 @@ def run_bot():
                         if qty_decimal < min_qty:
                             logger.info(f"계산된 수량 {qty_decimal}이 최소수량 {min_qty} 미만, 진입하지 않습니다.")
                         else:
-                            # 진입 조건 (원본 로직 유지)
-                            if last_candle["ema20"] > last_candle["ema60"] and last_close > last_candle["ema20"] and last_candle["rsi"] < 68:
+                            # 진입 조건: 2개 캔들 연속 확인으로 노이즈 필터링
+                            long_condition = (
+                                last_candle["ema20"] > last_candle["ema60"] and
+                                prev_candle["ema20"] > prev_candle["ema60"] and
+                                last_close > last_candle["ema20"] and
+                                last_candle["rsi"] < 68
+                            )
+                            short_condition = (
+                                last_candle["ema20"] < last_candle["ema60"] and
+                                prev_candle["ema20"] < prev_candle["ema60"] and
+                                last_close < last_candle["ema20"] and
+                                last_candle["rsi"] > 32
+                            )
+
+                            if long_condition:
                                 try:
                                     # 시장가 진입
                                     new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
-                                    logger.info(f"LONG 진입 주문: {new_ord}")
+                                    logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
                                     # 트레일링 스탑 - reduceOnly=True 권장 (거래소 지원 시)
                                     try:
                                         trail = client.new_order(
@@ -262,10 +276,10 @@ def run_bot():
                                 except Exception as e:
                                     logger.error(f"LONG 진입 실패: {e}")
 
-                            elif last_candle["ema20"] < last_candle["ema60"] and last_close < last_candle["ema20"] and last_candle["rsi"] > 32:
+                            elif short_condition:
                                 try:
                                     new_ord = client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=float(qty_decimal))
-                                    logger.info(f"SHORT 진입 주문: {new_ord}")
+                                    logger.info(f"SHORT 진입 주문 (2캔들 연속 확인): {new_ord}")
                                     try:
                                         trail = client.new_order(
                                             symbol=SYMBOL,
