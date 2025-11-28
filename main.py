@@ -174,8 +174,8 @@ def run_bot():
             orders = client.get_open_orders(symbol=SYMBOL, recvWindow=5000)
             return len(orders) > 0
         except Exception as e:
-            logger.warning(f"미체결 주문 조회 오류: {e}")
-            return True  # 안전하게 새진입 비허용
+            logger.error(f"미체결 주문 조회 오류: {e} - 안전 모드로 새 진입 허용")
+            return False  # API 오류 시에도 진입 시도
 
     # 메인 루프
     while True:
