@@ -71,7 +71,12 @@ def get_exchange_filters(client, symbol):
     심볼의 stepSize(min qty)와 tickSize(가격 소수자리) 등을 시도해서 가져옵니다.
     실패 시 기본값으로 돌아갑니다.
     """
-    defaults = {"stepSize": Decimal("0.001"), "minQty": Decimal("0.001"), "pricePrecision": 2}
+    defaults = {
+        "stepSize": Decimal("0.001"),
+        "minQty": Decimal("0.001"),
+        "tickSize": Decimal("0.01"),
+        "pricePrecision": 2
+    }
     try:
         info = client.exchange_info()
         for s in info.get("symbols", []):
@@ -84,7 +89,9 @@ def get_exchange_filters(client, symbol):
                         defaults["minQty"] = minq
                     if f.get("filterType") == "PRICE_FILTER":
                         tick = f.get("tickSize", "0.01")
-                        defaults["pricePrecision"] = int(abs(Decimal(str(tick)).as_tuple().exponent))
+                        tick_dec = Decimal(str(tick))
+                        defaults["tickSize"] = tick_dec
+                        defaults["pricePrecision"] = int(abs(tick_dec.as_tuple().exponent))
                 return defaults
     except Exception as e:
         logger.warning(f"심볼 정보 조회 실패: {e}")
@@ -96,6 +103,13 @@ def quantize_qty(qty: Decimal, step: Decimal):
         return Decimal("0")
     # 거래소 규칙에 정확히 부합: (수량 / 스텝).내림 * 스텝
     return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
+
+def quantize_price(price: Decimal, tick: Decimal):
+    """거래소 tickSize에 맞춰 가격 정밀도 조정 (Binance 오류 방지)"""
+    if price <= 0 or tick <= 0:
+        return price
+    # 거래소 규칙: (가격 / 틱).내림 * 틱
+    return (price / tick).to_integral_value(rounding=ROUND_DOWN) * tick
 
 # --- 인디케이터 계산 ---------------------------------------------------------------------
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -134,7 +148,8 @@ def run_bot():
     filters = get_exchange_filters(client, SYMBOL)
     step_size = filters["stepSize"]
     min_qty = filters["minQty"]
-    logger.info(f"심볼 필터: stepSize={step_size}, minQty={min_qty}")
+    tick_size = filters["tickSize"]
+    logger.info(f"심볼 필터: stepSize={step_size}, minQty={min_qty}, tickSize={tick_size}")
 
     logger.info("봇 시작: SYMBOL=%s, TIMEFRAME=%s, POSITION_RATIO=%.2f", SYMBOL, TIMEFRAME, POSITION_RATIO)
 
@@ -293,6 +308,7 @@ def run_bot():
                                     
                                     # 2) 백업 익절 (TP: +5%)
                                     tp_price = current_price * (1 + Decimal(str(BACKUP_TP / 100)))
+                                    tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
                                     try:
                                         take_profit = client.new_order(
                                             symbol=SYMBOL,
@@ -308,6 +324,7 @@ def run_bot():
                                     
                                     # 3) 백업 손절 (SL: -5%)
                                     sl_price = current_price * (1 + Decimal(str(BACKUP_SL / 100)))
+                                    sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
                                     try:
                                         stop_loss = client.new_order(
                                             symbol=SYMBOL,
@@ -344,6 +361,7 @@ def run_bot():
                                     
                                     # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때)
                                     tp_price = current_price * (1 + Decimal(str(-BACKUP_TP / 100)))
+                                    tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
                                     try:
                                         take_profit = client.new_order(
                                             symbol=SYMBOL,
@@ -359,6 +377,7 @@ def run_bot():
                                     
                                     # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때)
                                     sl_price = current_price * (1 + Decimal(str(-BACKUP_SL / 100)))
+                                    sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
                                     try:
                                         stop_loss = client.new_order(
                                             symbol=SYMBOL,
