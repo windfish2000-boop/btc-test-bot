@@ -363,41 +363,35 @@ def run_bot():
                                 except Exception as e:
                                     logger.warning(f"[LONG] 트레일링 스탑 생성 실패: {e}")
                                 
-                                # 2) 백업 익절 (TP: +5%, STOP+LIMIT 조합으로 미끄러짐 방지)
+                                # 2) 백업 익절 (TP: +5%, TAKE_PROFIT_MARKET으로 확실한 체결)
                                 tp_price = current_price * (1 + Decimal(str(BACKUP_TP)) / 100)
                                 tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
-                                tp_limit = tp_price * Decimal("0.999")  # 약간 여유있는 리미트 가격 (0.1% 낮음)
                                 try:
                                     take_profit = client.new_order(
                                         symbol=SYMBOL,
                                         side="SELL",
-                                        type="TAKE_PROFIT",
-                                        timeInForce="GTC",
+                                        type="TAKE_PROFIT_MARKET",
                                         quantity=float(qty_decimal),
-                                        price=float(quantize_price(tp_limit, tick_size)),
                                         stopPrice=float(tp_price),
                                         reduceOnly=True
                                     )
-                                    logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}, LIMIT={quantize_price(tp_limit, tick_size):.2f}): {take_profit}")
+                                    logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
                                 except Exception as e:
                                     logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
                                 
-                                # 3) 백업 손절 (SL: -5%, STOP+LIMIT 조합으로 미끄러짐 방지)
+                                # 3) 백업 손절 (SL: -5%, STOP_MARKET으로 확실한 체결)
                                 sl_price = current_price * (1 - Decimal(str(abs(BACKUP_SL))) / 100)
                                 sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
-                                sl_limit = sl_price * Decimal("1.001")  # 약간 여유있는 리미트 가격 (0.1% 높음)
                                 try:
                                     stop_loss = client.new_order(
                                         symbol=SYMBOL,
                                         side="SELL",
-                                        type="STOP",
-                                        timeInForce="GTC",
+                                        type="STOP_MARKET",
                                         quantity=float(qty_decimal),
-                                        price=float(quantize_price(sl_limit, tick_size)),
                                         stopPrice=float(sl_price),
                                         reduceOnly=True
                                     )
-                                    logger.info(f"[LONG] 백업 손절 생성 (SL={sl_price:.2f}, LIMIT={quantize_price(sl_limit, tick_size):.2f}): {stop_loss}")
+                                    logger.info(f"[LONG] 백업 손절 생성 (SL={sl_price:.2f}, STOP_MARKET): {stop_loss}")
                                 except Exception as e:
                                     logger.warning(f"[LONG] 백업 손절 생성 실패: {e}")
                             except Exception as e:
@@ -422,41 +416,35 @@ def run_bot():
                                 except Exception as e:
                                     logger.warning(f"[SHORT] 트레일링 스탑 생성 실패: {e}")
                                 
-                                # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때, STOP+LIMIT 조합)
+                                # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때, TAKE_PROFIT_MARKET으로 확실한 체결)
                                 tp_price = current_price * (1 - Decimal(str(BACKUP_TP)) / 100)
                                 tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
-                                tp_limit = tp_price * Decimal("1.001")  # 약간 여유있는 리미트 가격 (0.1% 높음)
                                 try:
                                     take_profit = client.new_order(
                                         symbol=SYMBOL,
                                         side="BUY",
-                                        type="TAKE_PROFIT",
-                                        timeInForce="GTC",
+                                        type="TAKE_PROFIT_MARKET",
                                         quantity=float(qty_decimal),
-                                        price=float(quantize_price(tp_limit, tick_size)),
                                         stopPrice=float(tp_price),
                                         reduceOnly=True
                                     )
-                                    logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}, LIMIT={quantize_price(tp_limit, tick_size):.2f}): {take_profit}")
+                                    logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
                                 except Exception as e:
                                     logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
                                 
-                                # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때, STOP+LIMIT 조합)
+                                # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때, STOP_MARKET으로 확실한 체결)
                                 sl_price = current_price * (1 + Decimal(str(abs(BACKUP_SL))) / 100)
                                 sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
-                                sl_limit = sl_price * Decimal("0.999")  # 약간 여유있는 리미트 가격 (0.1% 낮음)
                                 try:
                                     stop_loss = client.new_order(
                                         symbol=SYMBOL,
                                         side="BUY",
-                                        type="STOP",
-                                        timeInForce="GTC",
+                                        type="STOP_MARKET",
                                         quantity=float(qty_decimal),
-                                        price=float(quantize_price(sl_limit, tick_size)),
                                         stopPrice=float(sl_price),
                                         reduceOnly=True
                                     )
-                                    logger.info(f"[SHORT] 백업 손절 생성 (SL={sl_price:.2f}, LIMIT={quantize_price(sl_limit, tick_size):.2f}): {stop_loss}")
+                                    logger.info(f"[SHORT] 백업 손절 생성 (SL={sl_price:.2f}, STOP_MARKET): {stop_loss}")
                                 except Exception as e:
                                     logger.warning(f"[SHORT] 백업 손절 생성 실패: {e}")
                             except Exception as e:
