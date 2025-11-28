@@ -1,5 +1,8 @@
-# 바이낸스 테스트넷 선물 트레이딩 봇
-import ccxt, pandas as pd, time, os
+# 고객님 전용 BTCUSDT 격리 선물 봇 – 2025-11 변경 로그 반영판 (테스트넷)
+import ccxt
+import pandas as pd
+import time
+import os
 from flask import Flask
 from threading import Thread
 
@@ -15,79 +18,117 @@ def run_server():
 API_KEY = os.environ.get('API_KEY', '')
 API_SECRET = os.environ.get('API_SECRET', '')
 
+SYMBOL = 'BTCUSDT'
+TIMEFRAME = '15m'
+POSITION_RATIO = 0.10
+TRAIL_RATE = 1.5
+HARD_SL = -5.0
+
 def run_bot():
     if not API_KEY or not API_SECRET:
         print("API_KEY와 API_SECRET 환경변수를 설정해주세요!")
         return
-    
-    ex = ccxt.binanceusdm({
+
+    exchange = ccxt.binance({
         'apiKey': API_KEY,
         'secret': API_SECRET,
         'enableRateLimit': True,
-        'options': {
-            'defaultType': 'future',
-        },
-        'urls': {
-            'api': {
-                'public': 'https://testnet.binancefuture.com/fapi/v1',
-                'private': 'https://testnet.binancefuture.com/fapi/v1',
-                'fapiPublic': 'https://testnet.binancefuture.com/fapi/v1',
-                'fapiPrivate': 'https://testnet.binancefuture.com/fapi/v1',
-                'fapiPublicV2': 'https://testnet.binancefuture.com/fapi/v2',
-                'fapiPrivateV2': 'https://testnet.binancefuture.com/fapi/v2',
-            }
-        }
+        'urls': {'api': {'fapi': 'https://testnet.binancefuture.com/fapi/v1'}},
+        'options': {'defaultType': 'future'}
     })
 
     try:
-        ex.set_margin_mode('isolated', 'BTC/USDT:USDT')
-        print("마진타입 ISOLATED 설정 완료")
+        exchange.fapiPrivate_post_margintype({'symbol': SYMBOL, 'marginType': 'ISOLATED'})
+        exchange.fapiPrivate_post_leverage({'symbol': SYMBOL, 'leverage': 1})
+        print("테스트넷 격리 1배 설정 완료")
     except Exception as e:
-        print("마진타입 설정:", e)
-    
-    try:
-        ex.set_leverage(1, 'BTC/USDT:USDT')
-        print("레버리지 1x 설정 완료")
-    except Exception as e:
-        print("레버리지 설정:", e)
+        print("초기 설정:", e)
 
-    print("테스트넷 봇 가동 시작! 가상 10,000 USDT로 연습 중")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("테스트넷 봇 가동 시작! 가상 10,000 USDT로 연습 중 (2025-11 변경 로그 반영)")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    def get_balance():
+        return float(exchange.fetch_balance()['USDT']['free'])
+
+    def get_ohlcv():
+        raw = exchange.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=200)
+        df = pd.DataFrame(raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        return df
+
+    def calculate_indicators(df):
+        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
+        delta = df['close'].diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        df['rsi'] = 100 - 100 / (1 + gain / loss)
+        return df
+
+    def get_position():
+        pos = exchange.fapiPrivate_v2_get_positionrisk({'symbol': SYMBOL})[0]
+        amt = float(pos['positionAmt'])
+        if amt == 0:
+            return None, 0, 0
+        entry = float(pos['entryPrice'])
+        side = 'LONG' if amt > 0 else 'SHORT'
+        return side, abs(amt), entry
 
     while True:
         try:
-            d = pd.DataFrame(ex.fetch_ohlcv('BTC/USDT:USDT','15m',limit=200),
-                             columns=['t','o','h','l','c','v'])
-            d['e20'] = d['c'].ewm(span=20,adjust=False).mean()
-            d['e60'] = d['c'].ewm(span=60,adjust=False).mean()
-            delta = d['c'].diff()
-            g = delta.clip(lower=0).rolling(14).mean()
-            l = (-delta.clip(upper=0)).rolling(14).mean()
-            d['rsi'] = 100-100/(1+g/l)
-            c = d.iloc[-2]
-            
-            positions = ex.fetch_positions(['BTC/USDT:USDT'])
-            amt = 0
-            for pos in positions:
-                if pos['symbol'] == 'BTC/USDT:USDT':
-                    amt = float(pos['contracts'] or 0)
-                    break
+            df = get_ohlcv()
+            df = calculate_indicators(df)
+            last = df.iloc[-2]
+            price = last['close']
+            balance = get_balance()
+            side, qty, entry_price = get_position()
 
-            if amt == 0:
-                balance = ex.fetch_balance()
-                money = float(balance['USDT']['free'])
-                qty = round(money * 0.1 / c['c'], 3)
-                if qty >= 0.001:
-                    if c['e20']>c['e60'] and c['c']>c['e20'] and c['rsi']<68:
-                        ex.create_market_buy_order('BTC/USDT:USDT', qty)
-                        ex.create_order('BTC/USDT:USDT','TRAILING_STOP_MARKET','sell',qty,params={'callbackRate':1.5})
-                        print(time.strftime('%H:%M'),"테스트 LONG 진입")
-                    elif c['e20']<c['e60'] and c['c']<c['e20'] and c['rsi']>32:
-                        ex.create_market_sell_order('BTC/USDT:USDT', qty)
-                        ex.create_order('BTC/USDT:USDT','TRAILING_STOP_MARKET','buy',qty,params={'callbackRate':1.5})
-                        print(time.strftime('%H:%M'),"테스트 SHORT 진입")
+            if side:
+                if side == 'LONG':
+                    pnl = (price / entry_price - 1) * 100
+                    if pnl <= HARD_SL:
+                        exchange.create_market_sell_order(SYMBOL, qty)
+                        exchange.fapiPrivate_delete_allopenorders({'symbol': SYMBOL})
+                        print(f"[{time.strftime('%H:%M')}] HARD SL LONG 청산 {pnl:.2f}%")
+                else:
+                    pnl = (1 - price / entry_price) * 100
+                    if pnl <= HARD_SL:
+                        exchange.create_market_buy_order(SYMBOL, qty)
+                        exchange.fapiPrivate_delete_allopenorders({'symbol': SYMBOL})
+                        print(f"[{time.strftime('%H:%M')}] HARD SL SHORT 청산 {pnl:.2f}%")
+
+            elif side is None:
+                usdt_to_use = balance * POSITION_RATIO
+                quantity = round(usdt_to_use / price, 3)
+                if quantity >= 0.001:
+                    if last['ema20'] > last['ema60'] and price > last['ema20'] and last['rsi'] < 68:
+                        exchange.create_market_buy_order(SYMBOL, quantity)
+                        exchange.fapiPrivate_post_algoorder({
+                            'symbol': SYMBOL,
+                            'side': 'SELL',
+                            'type': 'TRAILING_STOP_MARKET',
+                            'quantity': quantity,
+                            'callbackRate': TRAIL_RATE,
+                            'workingType': 'MARK_PRICE'
+                        })
+                        print(f"[{time.strftime('%H:%M')}] LONG 진입 {quantity} BTC (algo trailing 설정)")
+
+                    elif last['ema20'] < last['ema60'] and price < last['ema20'] and last['rsi'] > 32:
+                        exchange.create_market_sell_order(SYMBOL, quantity)
+                        exchange.fapiPrivate_post_algoorder({
+                            'symbol': SYMBOL,
+                            'side': 'BUY',
+                            'type': 'TRAILING_STOP_MARKET',
+                            'quantity': quantity,
+                            'callbackRate': TRAIL_RATE,
+                            'workingType': 'MARK_PRICE'
+                        })
+                        print(f"[{time.strftime('%H:%M')}] SHORT 진입 {quantity} BTC (algo trailing 설정)")
+
             time.sleep(30)
+
         except Exception as e:
-            print("에러:",e)
+            print(f"[{time.strftime('%H:%M')}] 에러: {e}")
             time.sleep(30)
 
 if __name__ == '__main__':

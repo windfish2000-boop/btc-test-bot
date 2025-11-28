@@ -1,0 +1,133 @@
+# 고객님 전용 BTCUSDT 격리 선물 봇 – 2025-11 변경 로그 반영판 (테스트넷)
+import ccxt
+import pandas as pd
+import time
+import os
+from flask import Flask
+from threading import Thread
+
+# 24시간 깨워주는 웹서버
+app = Flask('')
+@app.route('/')
+def home(): return "테스트넷 봇 살아있어요! " + time.strftime('%H:%M')
+Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+
+# API 키 (Replit Secrets)
+API_KEY = os.environ['bisPZOfx1IaA80hJk5IoiXHyVqTc2UlqvCTSO77naSOJI8UepqS435CqCcvoGmSp']
+API_SECRET = os.environ['rXWuh9mJf83ljUr9RgOOrvITueUx3ZDaDKWT6VYF0sZiaLK4YChwX2ZrkxEB2eDV']
+
+# 테스트넷 연결
+exchange = ccxt.binance({
+    'apiKey': API_KEY,
+    'secret': API_SECRET,
+    'enableRateLimit': True,
+    'urls': {'api': {'fapi': 'https://testnet.binancefuture.com/fapi/v1'}},
+    'options': {'defaultType': 'future'}
+})
+
+SYMBOL = 'BTCUSDT'
+TIMEFRAME = '15m'
+POSITION_RATIO = 0.10  # 10%씩 진입
+TRAIL_RATE = 1.5  # 1.5% 트레일링
+HARD_SL = -5.0  # 하드 스탑로스 -5%
+
+# 격리 모드 + 레버리지 1배 설정
+try:
+    exchange.fapiPrivate_post_margintype({'symbol': SYMBOL, 'marginType': 'ISOLATED'})
+    exchange.fapiPrivate_post_leverage({'symbol': SYMBOL, 'leverage': 1})
+    print("테스트넷 격리 1배 설정 완료")
+except:
+    pass
+
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("테스트넷 봇 가동 시작! 가상 10,000 USDT로 연습 중 (2025-11 변경 로그 반영)")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+def get_balance():
+    return float(exchange.fetch_balance()['USDT']['free'])
+
+def get_ohlcv():
+    raw = exchange.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=200)
+    df = pd.DataFrame(raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    return df
+
+def calculate_indicators(df):
+    df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
+    delta = df['close'].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    df['rsi'] = 100 - 100 / (1 + gain / loss)
+    return df
+
+def get_position():
+    pos = exchange.fapiPrivate_v2_get_positionrisk({'symbol': SYMBOL})[0]
+    amt = float(pos['positionAmt'])
+    if amt == 0:
+        return None, 0, 0
+    entry = float(pos['entryPrice'])
+    side = 'LONG' if amt > 0 else 'SHORT'
+    return side, abs(amt), entry
+
+while True:
+    try:
+        df = get_ohlcv()
+        df = calculate_indicators(df)
+        last = df.iloc[-2]  # 완성된 캔들
+        price = last['close']
+        balance = get_balance()
+        side, qty, entry_price = get_position()
+
+        # 하드 스탑로스 –5% 로직 (포지션 있을 때)
+        if side:
+            if side == 'LONG':
+                pnl = (price / entry_price - 1) * 100
+                if pnl <= HARD_SL:
+                    exchange.create_market_sell_order(SYMBOL, qty)
+                    exchange.fapiPrivate_delete_allopenorders({'symbol': SYMBOL})
+                    print(f"[{time.strftime('%H:%M')}] HARD SL LONG 청산 {pnl:.2f}%")
+            else:  # SHORT
+                pnl = (1 - price / entry_price) * 100
+                if pnl <= HARD_SL:
+                    exchange.create_market_buy_order(SYMBOL, qty)
+                    exchange.fapiPrivate_delete_allopenorders({'symbol': SYMBOL})
+                    print(f"[{time.strftime('%H:%M')}] HARD SL SHORT 청산 {pnl:.2f}%")
+
+        # 진입 로직 (포지션 없을 때)
+        elif side is None:
+            usdt_to_use = balance * POSITION_RATIO
+            quantity = round(usdt_to_use / price, 3)
+            if quantity >= 0.001:
+                # 롱 진입
+                if last['ema20'] > last['ema60'] and price > last['ema20'] and last['rsi'] < 68:
+                    exchange.create_market_buy_order(SYMBOL, quantity)
+                    # TRAILING_STOP_MARKET → algoOrder로 변경 (2025-12-02부터 필수)
+                    exchange.fapiPrivate_post_algoorder({
+                        'symbol': SYMBOL,
+                        'side': 'SELL',
+                        'type': 'TRAILING_STOP_MARKET',
+                        'quantity': quantity,
+                        'callbackRate': TRAIL_RATE,
+                        'workingType': 'MARK_PRICE'
+                    })
+                    print(f"[{time.strftime('%H:%M')}] LONG 진입 {quantity} BTC (algo trailing 설정)")
+
+                # 숏 진입
+                elif last['ema20'] < last['ema60'] and price < last['ema20'] and last['rsi'] > 32:
+                    exchange.create_market_sell_order(SYMBOL, quantity)
+                    # TRAILING_STOP_MARKET → algoOrder로 변경
+                    exchange.fapiPrivate_post_algoorder({
+                        'symbol': SYMBOL,
+                        'side': 'BUY',
+                        'type': 'TRAILING_STOP_MARKET',
+                        'quantity': quantity,
+                        'callbackRate': TRAIL_RATE,
+                        'workingType': 'MARK_PRICE'
+                    })
+                    print(f"[{time.strftime('%H:%M')}] SHORT 진입 {quantity} BTC (algo trailing 설정)")
+
+        time.sleep(30)  # 30초 대기
+
+    except Exception as e:
+        print(f"[{time.strftime('%H:%M')}] 에러: {e}")
+        time.sleep(30)
