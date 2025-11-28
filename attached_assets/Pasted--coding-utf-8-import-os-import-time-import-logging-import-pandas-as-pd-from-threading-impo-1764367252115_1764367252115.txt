@@ -1,0 +1,230 @@
+# -*- coding: utf-8 -*-
+import os
+import time
+import logging
+import pandas as pd
+from threading import Thread
+from flask import Flask
+from binance.um_futures import UMFutures
+
+# 로그 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('trading_bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Flask 서버
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return f"Bot OK | Time: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+def run_server():
+    app.run(host='0.0.0.0', port=5000)
+
+# 기본 설정
+API_KEY = os.environ.get("API_KEY", "")
+API_SECRET = os.environ.get("API_SECRET", "")
+
+SYMBOL = "BTCUSDT"
+TIMEFRAME = "15m"
+POSITION_RATIO = 0.10
+TRAIL_RATE = 1.5
+HARD_SL = -5.0
+
+
+#############################
+# Utility Functions
+#############################
+def get_symbol_info(client, symbol):
+    info = client.exchange_info()
+    for s in info["symbols"]:
+        if s["symbol"] == symbol:
+            return s
+    raise ValueError("Symbol not found")
+
+
+def quantize(value, step):
+    return round(value - (value % step), 8)
+
+
+#############################
+# Indicator: RMA 기반 RSI
+#############################
+def calculate_rsi_rma(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
+    return 100 - (100 / (1 + rs))
+
+
+#############################
+# Trading Bot
+#############################
+def run_bot():
+    if not API_KEY or not API_SECRET:
+        logger.error("API 키를 설정하세요.")
+        return
+
+    client = UMFutures(
+        key=API_KEY,
+        secret=API_SECRET,
+        base_url='https://testnet.binancefuture.com'
+    )
+
+    # 심볼 정보 로딩
+    sym_info = get_symbol_info(client, SYMBOL)
+    price_tick = float([f for f in sym_info["filters"] if f["filterType"] == "PRICE_FILTER"][0]["tickSize"])
+    qty_step = float([f for f in sym_info["filters"] if f["filterType"] == "LOT_SIZE"][0]["stepSize"])
+    min_qty = float([f for f in sym_info["filters"] if f["filterType"] == "LOT_SIZE"][0]["minQty"])
+
+    # 마진 및 레버리지
+    try:
+        client.change_margin_type(symbol=SYMBOL, marginType="ISOLATED")
+    except:
+        pass
+    try:
+        client.change_leverage(symbol=SYMBOL, leverage=1)
+    except:
+        pass
+
+    logger.info("=== TradingBot Started ===")
+
+    while True:
+        try:
+            # 잔고 조회
+            account = client.account()
+            usdt = float([x for x in account["assets"] if x["asset"] == "USDT"][0]["availableBalance"])
+
+            # 포지션 조회
+            pos = client.get_position_risk(symbol=SYMBOL)
+            pos_amt = float(pos[0]["positionAmt"])
+            entry_price = float(pos[0]["entryPrice"]) if pos_amt != 0 else 0
+            side = "LONG" if pos_amt > 0 else "SHORT" if pos_amt < 0 else None
+
+            # OHLCV
+            klines = client.klines(symbol=SYMBOL, interval=TIMEFRAME, limit=200)
+            df = pd.DataFrame(klines, columns=[
+                'time','open','high','low','close','volume',
+                'close_time','qv','trades','tb','tq','ignore'
+            ])
+            df["close"] = df["close"].astype(float)
+            df["open"] = df["open"].astype(float)
+            df["high"] = df["high"].astype(float)
+            df["low"] = df["low"].astype(float)
+
+            # Indicators
+            df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
+            df["ema60"] = df["close"].ewm(span=60, adjust=False).mean()
+            df["rsi"] = calculate_rsi_rma(df["close"])
+
+            last = df.iloc[-2]
+            now_price = df.iloc[-1]["close"]
+
+            # 미체결 주문 체크
+            open_orders = client.get_open_orders(symbol=SYMBOL)
+            has_open = len(open_orders) > 0
+
+            # 로그
+            if side:
+                pnl = ((now_price / entry_price - 1) * 100) if side == "LONG" else ((1 - now_price / entry_price) * 100)
+                logger.info(f"{side} | Entry {entry_price} | Now {now_price} | PnL {pnl:.2f}%")
+            else:
+                logger.info(f"No Position | Price {now_price}")
+
+            # HARD SL
+            if side:
+                if pnl <= HARD_SL:
+                    logger.warning("HARD SL HIT! Closing position!")
+                    close_side = "SELL" if side == "LONG" else "BUY"
+                    client.new_order(symbol=SYMBOL, side=close_side, type="MARKET", quantity=abs(pos_amt))
+                    client.cancel_open_orders(symbol=SYMBOL)
+                    time.sleep(3)
+                    continue
+
+            # 진입 X 상태
+            if not side and not has_open:
+                qty = quantize((usdt * POSITION_RATIO) / now_price, qty_step)
+                if qty < min_qty:
+                    logger.info("수량 부족 → 건너뜀")
+                else:
+
+                    # LONG 조건
+                    if last["ema20"] > last["ema60"] and last["close"] > last["ema20"] and last["rsi"] < 68:
+                        client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=qty)
+                        logger.info(f"LONG ENTRY {qty}")
+
+                        # TSM
+                        try:
+                            client.new_order(
+                                symbol=SYMBOL,
+                                side="SELL",
+                                type="TRAILING_STOP_MARKET",
+                                quantity=qty,
+                                callbackRate=TRAIL_RATE,
+                                reduceOnly=True
+                            )
+                        except Exception as e:
+                            logger.error(f"TSM ERROR → 백업 SL 사용: {e}")
+                            sl = quantize(now_price * 0.985, price_tick)
+                            client.new_order(
+                                symbol=SYMBOL,
+                                side="SELL",
+                                type="STOP_MARKET",
+                                stopPrice=sl,
+                                reduceOnly=True
+                            )
+
+                    # SHORT 조건
+                    elif last["ema20"] < last["ema60"] and last["close"] < last["ema20"] and last["rsi"] > 32:
+                        client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=qty)
+                        logger.info(f"SHORT ENTRY {qty}")
+
+                        # TSM
+                        try:
+                            client.new_order(
+                                symbol=SYMBOL,
+                                side="BUY",
+                                type="TRAILING_STOP_MARKET",
+                                quantity=qty,
+                                callbackRate=TRAIL_RATE,
+                                reduceOnly=True
+                            )
+                        except:
+                            sl = quantize(now_price * 1.015, price_tick)
+                            client.new_order(
+                                symbol=SYMBOL,
+                                side="BUY",
+                                type="STOP_MARKET",
+                                stopPrice=sl,
+                                reduceOnly=True
+                            )
+
+            # 포지션 X → 남은 주문 정리
+            if not side and has_open:
+                logger.info("포지션 없음 → 잔여 주문 취소")
+                client.cancel_open_orders(symbol=SYMBOL)
+
+        except Exception as e:
+            logger.error(f"ERROR LOOP: {e}")
+
+        time.sleep(30)
+
+
+#############################
+# MAIN
+#############################
+if __name__ == "__main__":
+    Thread(target=run_bot, daemon=True).start()
+    run_server()
