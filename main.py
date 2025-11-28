@@ -360,8 +360,7 @@ def run_bot():
                                 new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
                                 logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
                                 
-                                # 트레일링 스탑 (주요 손절기구)
-                                tsm_success = False
+                                # 1) 트레일링 스탑 (주요 손절기구)
                                 try:
                                     trail = client.new_order(
                                         symbol=SYMBOL,
@@ -372,7 +371,6 @@ def run_bot():
                                         reduceOnly=True
                                     )
                                     logger.info(f"[LONG] 트레일링 스탑 생성 (TSM={TRAIL_RATE}%): {trail}")
-                                    tsm_success = True
                                 except Exception as e:
                                     logger.warning(f"[LONG] 트레일링 스탑 생성 실패 ({e}) → STOP_MARKET 백업 활성화")
                                     # TSM 실패 → STOP_MARKET 백업 주문 즉시 생성
@@ -390,6 +388,22 @@ def run_bot():
                                         logger.info(f"[LONG] STOP_MARKET 백업 손절 생성 (SL={sl_price:.2f}): {backup_sl}")
                                     except Exception as e2:
                                         logger.error(f"[LONG] STOP_MARKET 백업도 실패 (메인 루프 HARD_SL 체크만 가능): {e2}")
+                                
+                                # 2) 백업 익절 (TP: +5%, TAKE_PROFIT_MARKET으로 확실한 체결)
+                                try:
+                                    tp_price = current_price * (1 + Decimal(str(BACKUP_TP)) / 100)
+                                    tp_price = quantize_price(tp_price, tick_size)
+                                    take_profit = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="SELL",
+                                        type="TAKE_PROFIT_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(tp_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
+                                except Exception as e:
+                                    logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
                             except Exception as e:
                                 logger.error(f"LONG 진입 실패: {e}")
 
@@ -398,8 +412,7 @@ def run_bot():
                                 new_ord = client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=float(qty_decimal))
                                 logger.info(f"SHORT 진입 주문 (2캔들 연속 확인): {new_ord}")
                                 
-                                # 트레일링 스탑 (주요 손절기구)
-                                tsm_success = False
+                                # 1) 트레일링 스탑 (주요 손절기구)
                                 try:
                                     trail = client.new_order(
                                         symbol=SYMBOL,
@@ -410,7 +423,6 @@ def run_bot():
                                         reduceOnly=True
                                     )
                                     logger.info(f"[SHORT] 트레일링 스탑 생성 (TSM={TRAIL_RATE}%): {trail}")
-                                    tsm_success = True
                                 except Exception as e:
                                     logger.warning(f"[SHORT] 트레일링 스탑 생성 실패 ({e}) → STOP_MARKET 백업 활성화")
                                     # TSM 실패 → STOP_MARKET 백업 주문 즉시 생성
@@ -428,6 +440,22 @@ def run_bot():
                                         logger.info(f"[SHORT] STOP_MARKET 백업 손절 생성 (SL={sl_price:.2f}): {backup_sl}")
                                     except Exception as e2:
                                         logger.error(f"[SHORT] STOP_MARKET 백업도 실패 (메인 루프 HARD_SL 체크만 가능): {e2}")
+                                
+                                # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때, TAKE_PROFIT_MARKET)
+                                try:
+                                    tp_price = current_price * (1 - Decimal(str(BACKUP_TP)) / 100)
+                                    tp_price = quantize_price(tp_price, tick_size)
+                                    take_profit = client.new_order(
+                                        symbol=SYMBOL,
+                                        side="BUY",
+                                        type="TAKE_PROFIT_MARKET",
+                                        quantity=float(qty_decimal),
+                                        stopPrice=float(tp_price),
+                                        reduceOnly=True
+                                    )
+                                    logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
+                                except Exception as e:
+                                    logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
                             except Exception as e:
                                 logger.error(f"SHORT 진입 실패: {e}")
                         else:
