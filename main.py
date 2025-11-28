@@ -317,7 +317,7 @@ def run_bot():
                                     logger.warning(f"[LONG] 트레일링 스탑 생성 실패: {e}")
                                 
                                 # 2) 백업 익절 (TP: +5%)
-                                tp_price = current_price * (1 + Decimal(str(BACKUP_TP / 100)))
+                                tp_price = current_price * (1 + Decimal(str(BACKUP_TP)) / 100)
                                 tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
                                 try:
                                     take_profit = client.new_order(
@@ -333,7 +333,7 @@ def run_bot():
                                     logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
                                 
                                 # 3) 백업 손절 (SL: -5%)
-                                sl_price = current_price * (1 + Decimal(str(BACKUP_SL / 100)))
+                                sl_price = current_price * (1 - Decimal(str(abs(BACKUP_SL))) / 100)
                                 sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
                                 try:
                                     stop_loss = client.new_order(
@@ -370,7 +370,7 @@ def run_bot():
                                     logger.warning(f"[SHORT] 트레일링 스탑 생성 실패: {e}")
                                 
                                 # 2) 백업 익절 (TP: -5%, SHORT이므로 가격이 내려갈 때)
-                                tp_price = current_price * (1 + Decimal(str(-BACKUP_TP / 100)))
+                                tp_price = current_price * (1 - Decimal(str(BACKUP_TP)) / 100)
                                 tp_price = quantize_price(tp_price, tick_size)  # 가격 정밀도 조정
                                 try:
                                     take_profit = client.new_order(
@@ -386,7 +386,7 @@ def run_bot():
                                     logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
                                 
                                 # 3) 백업 손절 (SL: +5%, SHORT이므로 가격이 올라갈 때)
-                                sl_price = current_price * (1 + Decimal(str(-BACKUP_SL / 100)))
+                                sl_price = current_price * (1 + Decimal(str(abs(BACKUP_SL))) / 100)
                                 sl_price = quantize_price(sl_price, tick_size)  # 가격 정밀도 조정
                                 try:
                                     stop_loss = client.new_order(
