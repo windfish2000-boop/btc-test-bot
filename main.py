@@ -7,6 +7,8 @@ from decimal import Decimal, ROUND_DOWN, getcontext
 
 import pandas as pd
 from flask import Flask
+from telegram import Bot
+from telegram.error import TelegramError
 
 from binance.um_futures import UMFutures
 
@@ -43,6 +45,10 @@ BACKUP_SL = float(os.environ.get("BACKUP_SL", -5.0))  # 백업 손절 -5%
 TESTNET_BASE_URL = os.environ.get("TESTNET_BASE_URL", "https://testnet.binance.com/fapi")  # 안정적인 테스트넷
 CANDLE_INTERVAL = 900  # 15분 = 900초
 
+# 텔레그램 설정
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
 # 소수점 연산 정밀도
 getcontext().prec = 18
 
@@ -53,6 +59,24 @@ def get_candle_sleep_time():
     candle_progress = now % CANDLE_INTERVAL
     sleep_time = CANDLE_INTERVAL - candle_progress
     return sleep_time
+
+# --- 텔레그램 알림 함수 -------------------------------------------------------------------
+def send_telegram_message(message: str):
+    """텔레그램으로 메시지 전송 (비동기 처리 - 봇 속도 영향 없음)"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return  # 설정 안 됨 - 자동 스킵
+    
+    def _send():
+        try:
+            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+            bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="HTML")
+        except TelegramError as e:
+            logger.warning(f"[텔레그램] 메시지 전송 실패: {e}")
+        except Exception as e:
+            logger.warning(f"[텔레그램] 예상치 못한 오류: {e}")
+    
+    # 별도 스레드에서 비동기 처리 (봇 속도에 영향 없음)
+    Thread(target=_send, daemon=True).start()
 
 # --- 유틸 / 거래소 정보 ------------------------------------------------------------------
 def safe_decimal(x):
@@ -304,6 +328,9 @@ def run_bot():
                         # 시장가로 전량 청산
                         resp = client.new_order(symbol=SYMBOL, side=close_side, type="MARKET", quantity=float(qty))
                         logger.warning(f"HARD SL 청산 주문 체결: {resp}")
+                        # 텔레그램 알림
+                        msg = f"⚠️ <b>HARD SL 발동</b>\n포지션: {side}\n손실: {pnl:.2f}%"
+                        send_telegram_message(msg)
                     except Exception as e:
                         logger.error(f"HARD SL 청산 실패: {e}")
                     # 취소 시도 (예외 무시)
@@ -359,6 +386,9 @@ def run_bot():
                                 # 시장가 진입
                                 new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
                                 logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
+                                # 텔레그램 알림
+                                msg = f"🟢 <b>LONG 진입</b>\n심볼: {SYMBOL}\n수량: {qty_decimal}\n가격: {current_price:.2f}"
+                                send_telegram_message(msg)
                                 
                                 # 1) 트레일링 스탑 (주요 손절기구)
                                 try:
@@ -402,6 +432,8 @@ def run_bot():
                                         reduceOnly=True
                                     )
                                     logger.info(f"[LONG] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
+                                    msg = f"📈 <b>LONG 익절 설정</b> (TP: {tp_price:.2f})"
+                                    send_telegram_message(msg)
                                 except Exception as e:
                                     logger.warning(f"[LONG] 백업 익절 생성 실패: {e}")
                             except Exception as e:
@@ -411,6 +443,9 @@ def run_bot():
                             try:
                                 new_ord = client.new_order(symbol=SYMBOL, side="SELL", type="MARKET", quantity=float(qty_decimal))
                                 logger.info(f"SHORT 진입 주문 (2캔들 연속 확인): {new_ord}")
+                                # 텔레그램 알림
+                                msg = f"🔴 <b>SHORT 진입</b>\n심볼: {SYMBOL}\n수량: {qty_decimal}\n가격: {current_price:.2f}"
+                                send_telegram_message(msg)
                                 
                                 # 1) 트레일링 스탑 (주요 손절기구)
                                 try:
@@ -454,6 +489,8 @@ def run_bot():
                                         reduceOnly=True
                                     )
                                     logger.info(f"[SHORT] 백업 익절 생성 (TP={tp_price:.2f}, TAKE_PROFIT_MARKET): {take_profit}")
+                                    msg = f"📉 <b>SHORT 익절 설정</b> (TP: {tp_price:.2f})"
+                                    send_telegram_message(msg)
                                 except Exception as e:
                                     logger.warning(f"[SHORT] 백업 익절 생성 실패: {e}")
                             except Exception as e:

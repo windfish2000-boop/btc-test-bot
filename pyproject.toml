@@ -5,8 +5,10 @@ description = ""
 authors = ["Your Name <you@example.com>"]
 requires-python = ">=3.11"
 dependencies = [
+    "binance>=0.3.88",
     "binance-futures-connector>=4.1.0",
     "ccxt>=4.5.22",
     "flask>=3.1.2",
     "pandas>=2.3.3",
+    "python-telegram-bot>=22.5",
 ]
