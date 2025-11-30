@@ -29,7 +29,7 @@ def home():
 
 def run_server():
     # 개발/테스트용: production에서는 gunicorn / waitress 등 권장
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), threaded=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
 # --- 환경 변수 / 설정 --------------------------------------------------------------------
 API_KEY = os.environ.get("API_KEY", "")
@@ -383,11 +383,9 @@ def run_bot():
 
                         if long_condition:
                             try:
-                                # 제한가 진입 (현재가의 99.95% - 슬리페이지 제거)
-                                limit_price = current_price * Decimal("0.9995")
-                                limit_price = quantize_price(limit_price, tick_size)
-                                new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="LIMIT", quantity=float(qty_decimal), price=float(limit_price), timeInForce="GTC")
-                                logger.info(f"LONG 진입 주문 (제한가 {limit_price:.2f}): {new_ord}")
+                                # 시장가 진입
+                                new_ord = client.new_order(symbol=SYMBOL, side="BUY", type="MARKET", quantity=float(qty_decimal))
+                                logger.info(f"LONG 진입 주문 (2캔들 연속 확인): {new_ord}")
                                 # 텔레그램 알림
                                 msg = f"🟢 <b>LONG 진입</b>\n심볼: {SYMBOL}\n수량: {qty_decimal}\n가격: {current_price:.2f}"
                                 send_telegram_message(msg)
