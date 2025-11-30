@@ -115,24 +115,53 @@ def get_exchange_filters(client, symbol):
         "pricePrecision": 2
     }
     try:
+        import json
         info = client.exchange_info()
-        for s in info.get("symbols", []):
+        
+        # 응답이 string이면 JSON으로 파싱
+        if isinstance(info, str):
+            info = json.loads(info)
+        
+        # 응답이 dict 확인
+        if not isinstance(info, dict):
+            logger.warning(f"exchange_info 응답 타입 오류: {type(info)}")
+            return defaults
+            
+        symbols = info.get("symbols", [])
+        if not isinstance(symbols, list):
+            logger.warning("symbols가 list가 아님")
+            return defaults
+            
+        for s in symbols:
+            if not isinstance(s, dict):
+                continue
             if s.get("symbol") == symbol:
-                for f in s.get("filters", []):
+                filters = s.get("filters", [])
+                if not isinstance(filters, list):
+                    continue
+                for f in filters:
+                    if not isinstance(f, dict):
+                        continue
                     if f.get("filterType") == "LOT_SIZE":
-                        step = Decimal(str(f.get("stepSize", "0.001")))
-                        minq = Decimal(str(f.get("minQty", "0.001")))
-                        defaults["stepSize"] = step
-                        defaults["minQty"] = minq
+                        try:
+                            step = Decimal(str(f.get("stepSize", "0.001")))
+                            minq = Decimal(str(f.get("minQty", "0.001")))
+                            defaults["stepSize"] = step
+                            defaults["minQty"] = minq
+                        except:
+                            pass
                     if f.get("filterType") == "PRICE_FILTER":
-                        tick = f.get("tickSize", "0.01")
-                        tick_dec = Decimal(str(tick))
-                        defaults["tickSize"] = tick_dec
-                        exponent = tick_dec.as_tuple().exponent
-                        defaults["pricePrecision"] = int(abs(int(exponent)))
+                        try:
+                            tick = f.get("tickSize", "0.01")
+                            tick_dec = Decimal(str(tick))
+                            defaults["tickSize"] = tick_dec
+                            exponent = tick_dec.as_tuple().exponent
+                            defaults["pricePrecision"] = int(abs(int(exponent)))
+                        except:
+                            pass
                 return defaults
     except Exception as e:
-        logger.warning(f"심볼 정보 조회 실패: {e}")
+        logger.warning(f"심볼 정보 조회 실패 (기본값 사용): {e}")
     return defaults
 
 
