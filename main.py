@@ -29,7 +29,7 @@ def home():
 
 def run_server():
     # 개발/테스트용: production에서는 gunicorn / waitress 등 권장
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), threaded=True, use_reloader=False)
 
 # --- 환경 변수 / 설정 --------------------------------------------------------------------
 API_KEY = os.environ.get("API_KEY", "")
