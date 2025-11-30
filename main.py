@@ -28,8 +28,8 @@ def home():
     return f"테스트넷 봇 살아있어요! 현재 시간: {time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 def run_server():
-    # 개발/테스트용: production에서는 gunicorn / waitress 등 권장
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # 구글 클라우드 호환: 포트 8080 (환경변수에서 읽기, 기본값 8080)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 # --- 환경 변수 / 설정 --------------------------------------------------------------------
 API_KEY = os.environ.get("API_KEY", "")
