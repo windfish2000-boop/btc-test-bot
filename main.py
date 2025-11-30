@@ -46,7 +46,7 @@ HARD_SL = float(os.environ.get("HARD_SL", -5.0))
 BACKUP_TP = float(os.environ.get("BACKUP_TP", 5.0))  # 백업 익절 +5%
 BACKUP_SL = float(os.environ.get("BACKUP_SL", -5.0))  # 백업 손절 -5%
 TESTNET_BASE_URL = os.environ.get(
-    "TESTNET_BASE_URL", "https://testnet.binance.com/fapi")  # 안정적인 테스트넷
+    "TESTNET_BASE_URL", "https://demo-fapi.binance.com")  # 정확한 Futures 테스트넷
 CANDLE_INTERVAL = 900  # 15분 = 900초
 
 # 텔레그램 설정

@@ -7,7 +7,7 @@ import json
 
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
-TESTNET_BASE_URL = "https://testnet.binance.com/fapi"
+TESTNET_BASE_URL = "https://demo-fapi.binance.com"
 
 print("=" * 60)
 print("🔍 Binance 테스트넷 API 연결 테스트")
